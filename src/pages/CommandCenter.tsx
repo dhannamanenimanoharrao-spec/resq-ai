@@ -1,195 +1,579 @@
-import { useRef, useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, Radio, MapPin, Clock, ArrowRight } from 'lucide-react';
+import { Activity, MapPin, Clock, ArrowRight, RefreshCw } from 'lucide-react';
 import StatusLabel from '@/components/shared/StatusLabel';
 import RouteMap from '@/components/shared/RouteMap';
-import { resources } from '@/data/mockResources';
-import { hospitals } from '@/data/mockHospitals';
-import { highwayAccident, secondaryIncident } from '@/data/mockIncidents';
-import { initialResponsePlan } from '@/data/mockResponsePlans';
+import type { Resource } from '@/types/resource';
+import type { Hospital } from '@/types/hospital';
 
 interface CommandCenterProps {
   onNavigate: (route: 'landing' | 'command-center' | 'incident') => void;
 }
 
-const timeline = [
-  { time: '14:23:07', event: 'INCIDENT DETECTED', detail: 'Highway 101, Exit 418B', type: 'alert' as const },
-  { time: '14:23:09', event: 'AI ANALYSIS COMPLETE', detail: '4 patients identified, 2 critical/severe', type: 'teal' as const },
-  { time: '14:23:12', event: 'RESOURCE MATCH', detail: 'Ambulance B (trauma) + Ambulance A (advanced)', type: 'teal' as const },
-  { time: '14:23:15', event: 'RESPONSE PLAN DEPLOYED', detail: '4 patients → 3 hospitals, overall ETA 10 min', type: 'teal' as const },
-  { time: '14:23:18', event: 'POLICE DISPATCHED', detail: 'Unit 12 — route clearance and scene security', type: 'teal' as const },
-  { time: '14:25:30', event: 'ROUTE DISRUPTION', detail: 'Primary route congested — re-optimizing', type: 'alert' as const },
-  { time: '14:25:32', event: 'NEW RESPONSE PLAN', detail: 'Rerouted via Pine St, ETA updated to 9 min', type: 'amber' as const },
-];
+interface BackendAmbulance {
+  id: string;
+  name?: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+  type?: string;
+}
 
-export default function CommandCenter({ onNavigate }: CommandCenterProps) {
-  const [activeIncidentIdx, setActiveIncidentIdx] = useState(0);
-  const incidents = [highwayAccident, secondaryIncident];
-  const activeIncident = incidents[activeIncidentIdx];
-  const plan = initialResponsePlan;
+interface BackendHospital {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  available_beds: number;
+  emergency_capable: boolean;
+}
 
-  const routes = plan.assignments.map((a) => ({
-    from: a.ambulance.location,
-    to: a.hospital.location,
-    status: a.routeStatus as 'active' | 'disrupted' | 'rerouted',
-  }));
+interface BackendEmergency {
+  id: string;
+  latitude: number;
+  longitude: number;
+  emergency_type: string;
+  severity: string;
+  status: string;
+  description?: string;
+  assigned_ambulance_id?: string | null;
+  created_at?: string;
+}
 
-  const availableAmbulances = resources.filter((r) => r.type === 'ambulance' && r.status === 'available').length;
-  const activeAmbulances = resources.filter((r) => r.type === 'ambulance' && r.status === 'active').length;
-  const availableHospitals = hospitals.filter((h) => h.icuCapacity === 'available').length;
+const API_BASE = 'http://127.0.0.1:8000';
+
+function toMapPosition(
+  latitude: number,
+  longitude: number
+): { x: number; y: number } {
+  const minLat = 17.38;
+  const maxLat = 17.48;
+  const minLon = 78.34;
+  const maxLon = 78.48;
+
+  const x = ((longitude - minLon) / (maxLon - minLon)) * 100;
+  const y = 100 - ((latitude - minLat) / (maxLat - minLat)) * 100;
+
+  return {
+    x: Math.max(3, Math.min(97, x)),
+    y: Math.max(3, Math.min(97, y)),
+  };
+}
+
+function ambulanceStatus(status: string): Resource['status'] {
+  const value = status.toLowerCase();
+
+  if (value === 'available') return 'available';
+  if (value === 'busy' || value === 'active') return 'active';
+
+  return 'unavailable';
+}
+
+function hospitalCapacity(
+  beds: number
+): Hospital['icuCapacity'] {
+  if (beds <= 0) return 'full';
+  if (beds <= 10) return 'limited';
+  return 'available';
+}
+
+export default function CommandCenter({
+  onNavigate,
+}: CommandCenterProps) {
+  const [ambulances, setAmbulances] = useState<BackendAmbulance[]>([]);
+  const [hospitals, setHospitals] = useState<BackendHospital[]>([]);
+  const [emergencies, setEmergencies] = useState<BackendEmergency[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  async function loadLiveData() {
+    try {
+      setLoading(true);
+      setError('');
+
+      const [ambulanceResponse, hospitalResponse, emergencyResponse] =
+        await Promise.all([
+          fetch(`${API_BASE}/ambulances`),
+          fetch(`${API_BASE}/hospitals`),
+          fetch(`${API_BASE}/emergencies`),
+        ]);
+
+      if (!ambulanceResponse.ok) {
+        throw new Error('Failed to load ambulances');
+      }
+
+      if (!hospitalResponse.ok) {
+        throw new Error('Failed to load hospitals');
+      }
+
+      if (!emergencyResponse.ok) {
+        throw new Error('Failed to load emergencies');
+      }
+
+      const ambulanceData = await ambulanceResponse.json();
+      const hospitalData = await hospitalResponse.json();
+      const emergencyData = await emergencyResponse.json();
+
+      setAmbulances(ambulanceData);
+      setHospitals(hospitalData);
+      setEmergencies(emergencyData);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to connect to backend'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLiveData();
+
+    const interval = setInterval(loadLiveData, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const activeEmergency =
+    emergencies.find(
+      (emergency) =>
+        emergency.status !== 'completed' &&
+        emergency.status !== 'cancelled'
+    ) ?? emergencies[0];
+
+  const resourceData: Resource[] = useMemo(
+    () =>
+      ambulances.map((ambulance) => ({
+        id: ambulance.id,
+        type: 'ambulance',
+        label: ambulance.name ?? ambulance.id,
+        status: ambulanceStatus(ambulance.status),
+        capability:
+          ambulance.type === 'advanced'
+            ? 'advanced'
+            : ambulance.type === 'basic'
+              ? 'basic'
+              : 'standard',
+        location: toMapPosition(
+          ambulance.latitude,
+          ambulance.longitude
+        ),
+      })),
+    [ambulances]
+  );
+
+  const hospitalData: Hospital[] = useMemo(
+    () =>
+      hospitals.map((hospital) => ({
+        id: hospital.id,
+        name: hospital.name,
+        distance: 0,
+        travelTime: 0,
+        icuCapacity: hospitalCapacity(
+          hospital.available_beds
+        ),
+        traumaCapability: hospital.emergency_capable,
+        currentLoad: 0,
+        maxLoad: hospital.available_beds,
+        location: toMapPosition(
+          hospital.latitude,
+          hospital.longitude
+        ),
+      })),
+    [hospitals]
+  );
+
+  const availableAmbulances = ambulances.filter(
+    (ambulance) =>
+      ambulance.status.toLowerCase() === 'available'
+  );
+
+  const activeAmbulances = ambulances.filter(
+    (ambulance) =>
+      ambulance.status.toLowerCase() === 'busy' ||
+      ambulance.status.toLowerCase() === 'active'
+  );
+
+  const availableHospitals = hospitals.filter(
+    (hospital) => hospital.available_beds > 0
+  );
+
+  const incidentPosition = activeEmergency
+    ? toMapPosition(
+        activeEmergency.latitude,
+        activeEmergency.longitude
+      )
+    : { x: 50, y: 50 };
+
+  const nearestAmbulance = useMemo(() => {
+    if (!activeEmergency || availableAmbulances.length === 0) {
+      return null;
+    }
+
+    return [...availableAmbulances].sort((a, b) => {
+      const distanceA =
+        Math.pow(
+          a.latitude - activeEmergency.latitude,
+          2
+        ) +
+        Math.pow(
+          a.longitude - activeEmergency.longitude,
+          2
+        );
+
+      const distanceB =
+        Math.pow(
+          b.latitude - activeEmergency.latitude,
+          2
+        ) +
+        Math.pow(
+          b.longitude - activeEmergency.longitude,
+          2
+        );
+
+      return distanceA - distanceB;
+    })[0];
+  }, [activeEmergency, availableAmbulances]);
+
+  const nearestHospital = useMemo(() => {
+    if (!activeEmergency || hospitals.length === 0) {
+      return null;
+    }
+
+    return [...hospitals]
+      .filter((hospital) => hospital.available_beds > 0)
+      .sort((a, b) => {
+        const distanceA =
+          Math.pow(
+            a.latitude - activeEmergency.latitude,
+            2
+          ) +
+          Math.pow(
+            a.longitude - activeEmergency.longitude,
+            2
+          );
+
+        const distanceB =
+          Math.pow(
+            b.latitude - activeEmergency.latitude,
+            2
+          ) +
+          Math.pow(
+            b.longitude - activeEmergency.longitude,
+            2
+          );
+
+        return distanceA - distanceB;
+      })[0];
+  }, [activeEmergency, hospitals]);
+
+  const routes =
+    nearestAmbulance && nearestHospital
+      ? [
+          {
+            from: toMapPosition(
+              nearestAmbulance.latitude,
+              nearestAmbulance.longitude
+            ),
+            to: toMapPosition(
+              nearestHospital.latitude,
+              nearestHospital.longitude
+            ),
+            status: 'active' as const,
+          },
+        ]
+      : [];
 
   return (
     <div className="min-h-screen pt-16 bg-resq-base">
-      {/* System status strip */}
+
+      {/* SYSTEM STATUS */}
       <div className="border-b border-resq-border bg-resq-surface px-6 md:px-12 py-3 flex items-center gap-6 overflow-x-auto">
-        <StatusLabel type="operational" label="SYSTEM OPERATIONAL" pulse />
+
+        <StatusLabel
+          type={error ? 'warning' : 'operational'}
+          label={error ? 'BACKEND ERROR' : 'SYSTEM OPERATIONAL'}
+          pulse={!error}
+        />
+
         <div className="h-4 w-px bg-resq-border" />
-        <span className="mono-label">ACTIVE INCIDENTS: <span className="text-resq-coral">{incidents.length}</span></span>
+
+        <span className="mono-label">
+          ACTIVE INCIDENTS:{' '}
+          <span className="text-resq-coral">
+            {emergencies.length}
+          </span>
+        </span>
+
         <div className="h-4 w-px bg-resq-border" />
-        <span className="mono-label">AMBULANCES: <span className="text-resq-teal">{availableAmbulances}</span> AVAILABLE · <span className="text-resq-amber">{activeAmbulances}</span> ACTIVE</span>
+
+        <span className="mono-label">
+          AMBULANCES:{' '}
+          <span className="text-resq-teal">
+            {availableAmbulances.length}
+          </span>{' '}
+          AVAILABLE ·{' '}
+          <span className="text-resq-amber">
+            {activeAmbulances.length}
+          </span>{' '}
+          ACTIVE
+        </span>
+
         <div className="h-4 w-px bg-resq-border" />
-        <span className="mono-label">HOSPITALS: <span className="text-resq-teal">{availableHospitals}</span> WITH ICU</span>
-        <div className="h-4 w-px bg-resq-border hidden md:block" />
-        <span className="mono-label hidden md:block">14:25:32 PST</span>
+
+        <span className="mono-label">
+          HOSPITALS:{' '}
+          <span className="text-resq-teal">
+            {availableHospitals.length}
+          </span>{' '}
+          WITH BEDS
+        </span>
+
+        <button
+          onClick={loadLiveData}
+          className="ml-auto flex items-center gap-2 font-mono text-xs text-resq-text-dim hover:text-resq-teal"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${
+              loading ? 'animate-spin' : ''
+            }`}
+          />
+          LIVE
+        </button>
       </div>
 
-      {/* Main layout: map dominant + side panel */}
+      {/* MAIN */}
       <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem-3rem)]">
-        {/* Map area — 65-75% on desktop */}
+
+        {/* MAP */}
         <div className="flex-1 lg:flex-[3] relative min-h-[400px] lg:min-h-0">
+
           <RouteMap
-            resources={resources}
-            hospitals={hospitals}
-            incidentPos={{ x: 50, y: 50 }}
+            resources={resourceData}
+            hospitals={hospitalData}
+            incidentPos={incidentPosition}
             routes={routes}
             height="100%"
             showLabels={false}
             className="border-r-0 lg:border-r border-resq-border"
           />
 
-          {/* Incident selector overlay */}
-          <div className="absolute top-4 left-4 flex gap-2">
-            {incidents.map((inc, i) => (
-              <button
-                key={inc.id}
-                onClick={() => setActiveIncidentIdx(i)}
-                className={`font-mono text-xs uppercase tracking-[0.15em] px-3 py-1.5 rounded-sm border transition-colors ${
-                  activeIncidentIdx === i
-                    ? 'border-resq-coral text-resq-coral bg-resq-coral/5'
-                    : 'border-resq-border text-resq-text-dim hover:text-resq-text'
-                }`}
-              >
-                {inc.id}
-              </button>
-            ))}
+          {/* LIVE BADGE */}
+          <div className="absolute top-4 left-4">
+            <div className="flex items-center gap-2 px-3 py-2 bg-resq-base/90 border border-resq-teal/40 rounded-sm">
+              <span className="h-2 w-2 rounded-full bg-resq-teal animate-pulse" />
+              <span className="font-mono text-xs text-resq-teal tracking-wider">
+                LIVE BACKEND DATA
+              </span>
+            </div>
           </div>
 
-          {/* Map legend */}
-          <div className="absolute bottom-4 left-4 bg-resq-base/80 backdrop-blur-sm border border-resq-border rounded-sm p-3 space-y-2">
+          {/* LEGEND */}
+          <div className="absolute bottom-4 left-4 bg-resq-base/90 backdrop-blur-sm border border-resq-border rounded-sm p-3 space-y-2">
+
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-resq-coral" />
-              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">Incident</span>
+              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">
+                Incident
+              </span>
             </div>
+
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-resq-teal" />
-              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">Available</span>
+              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">
+                Available
+              </span>
             </div>
+
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-resq-amber" />
-              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">En route</span>
+              <span className="h-2 w-2 rounded-full bg-resq-coral" />
+              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">
+                Active
+              </span>
             </div>
+
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-resq-text-faint" />
-              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">Unavailable</span>
+              <span className="h-2 w-2 rounded-full bg-resq-teal" />
+              <span className="font-mono text-xs text-resq-text-dim uppercase tracking-wider">
+                Hospital
+              </span>
             </div>
+
           </div>
         </div>
 
-        {/* Side panel */}
+        {/* SIDE PANEL */}
         <div className="lg:w-[400px] xl:w-[440px] bg-resq-surface border-t lg:border-t-0 border-resq-border overflow-y-auto">
-          {/* Incident header */}
+
+          {/* INCIDENT */}
           <div className="p-6 border-b border-resq-border">
+
             <div className="flex items-center gap-2 mb-3">
               <MapPin className="h-4 w-4 text-resq-coral" />
-              <span className="mono-label-coral">{activeIncident.id} · {activeIncident.type.toUpperCase().replace('-', ' ')}</span>
+              <span className="mono-label-coral">
+                {activeEmergency
+                  ? `${activeEmergency.id} · ${activeEmergency.emergency_type.toUpperCase()}`
+                  : 'NO ACTIVE INCIDENT'}
+              </span>
             </div>
+
             <h2 className="font-display text-xl font-semibold text-resq-text-bright">
-              {activeIncident.location.label}
+              {activeEmergency
+                ? 'Emergency Response'
+                : 'Waiting for emergency'}
             </h2>
-            <p className="text-sm text-resq-text-dim mt-2">{activeIncident.rawText}</p>
-            <div className="flex items-center gap-2 mt-3">
-              <Clock className="h-3.5 w-3.5 text-resq-text-faint" />
-              <span className="font-mono text-xs text-resq-text-faint">{activeIncident.timestamp}</span>
-            </div>
+
+            <p className="text-sm text-resq-text-dim mt-2">
+              {activeEmergency?.description ??
+                'No emergency has been registered yet.'}
+            </p>
+
+            {activeEmergency && (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+
+                <div>
+                  <span className="mono-label block mb-1">
+                    SEVERITY
+                  </span>
+                  <span className="font-mono text-sm text-resq-coral uppercase">
+                    {activeEmergency.severity}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="mono-label block mb-1">
+                    STATUS
+                  </span>
+                  <span className="font-mono text-sm text-resq-teal uppercase">
+                    {activeEmergency.status}
+                  </span>
+                </div>
+
+              </div>
+            )}
+
+            {activeEmergency && (
+              <div className="flex items-center gap-2 mt-4">
+                <Clock className="h-3.5 w-3.5 text-resq-text-faint" />
+                <span className="font-mono text-xs text-resq-text-faint">
+                  {activeEmergency.created_at
+                    ? new Date(
+                        activeEmergency.created_at
+                      ).toLocaleTimeString()
+                    : 'LIVE'}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* AI Recommendation */}
+          {/* AI RECOMMENDATION */}
           <div className="p-6 border-b border-resq-border">
+
             <div className="flex items-center gap-2 mb-4">
               <Activity className="h-4 w-4 text-resq-teal" />
-              <span className="mono-label-teal">AI RECOMMENDATION</span>
+              <span className="mono-label-teal">
+                RESPONSE RECOMMENDATION
+              </span>
             </div>
-            <div className="space-y-3">
-              {plan.assignments.map((a, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${
-                    a.patient.severity === 'critical' ? 'bg-resq-coral' :
-                    a.patient.severity === 'severe' ? 'bg-resq-amber' : 'bg-resq-text-faint'
-                  }`} />
-                  <span className="font-mono text-xs text-resq-text-faint w-12">{a.patient.label}</span>
-                  <span className="font-mono text-xs text-resq-text">{a.ambulance.label}</span>
+
+            {nearestAmbulance ? (
+              <div className="space-y-4">
+
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="h-1.5 w-1.5 rounded-full bg-resq-coral" />
+
+                  <span className="font-mono text-xs text-resq-text">
+                    {nearestAmbulance.name ??
+                      nearestAmbulance.id}
+                  </span>
+
                   <ArrowRight className="h-3 w-3 text-resq-text-faint" />
-                  <span className="font-mono text-xs text-resq-teal">{a.hospital.name}</span>
-                  <span className="font-mono text-xs text-resq-text-bright ml-auto">{a.eta}m</span>
+
+                  <span className="font-mono text-xs text-resq-teal">
+                    INCIDENT
+                  </span>
+                </div>
+
+                {nearestHospital && (
+                  <div className="flex items-center gap-2 text-sm">
+
+                    <span className="h-1.5 w-1.5 rounded-full bg-resq-teal" />
+
+                    <span className="font-mono text-xs text-resq-text">
+                      {nearestHospital.name}
+                    </span>
+
+                    <span className="font-mono text-xs text-resq-text-dim ml-auto">
+                      {nearestHospital.available_beds} BEDS
+                    </span>
+
+                  </div>
+                )}
+
+                <div className="mt-4 pt-4 border-t border-resq-border">
+
+                  <p className="text-xs text-resq-text-dim leading-relaxed">
+                    Nearest available ambulance identified from
+                    live Supabase resource data. Hospital
+                    availability is evaluated from the current
+                    backend bed count.
+                  </p>
+
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-resq-text-dim">
+                No available ambulance is currently registered.
+              </p>
+            )}
+          </div>
+
+          {/* LIVE RESOURCES */}
+          <div className="p-6">
+
+            <span className="mono-label mb-4 block">
+              LIVE RESOURCE STATUS
+            </span>
+
+            <div className="space-y-3">
+
+              {ambulances.map((ambulance) => (
+                <motion.div
+                  key={ambulance.id}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center justify-between border border-resq-border p-3"
+                >
+
+                  <div>
+                    <span className="font-mono text-xs text-resq-text block">
+                      {ambulance.name ?? ambulance.id}
+                    </span>
+
+                    <span className="font-mono text-[10px] text-resq-text-faint uppercase">
+                      {ambulance.type ?? 'standard'}
+                    </span>
+                  </div>
+
+                  <span
+                    className={`font-mono text-[10px] uppercase ${
+                      ambulance.status.toLowerCase() ===
+                      'available'
+                        ? 'text-resq-teal'
+                        : 'text-resq-amber'
+                    }`}
+                  >
+                    {ambulance.status}
+                  </span>
+
                 </motion.div>
               ))}
-            </div>
-            <div className="mt-4 pt-4 border-t border-resq-border">
-              <p className="text-xs text-resq-text-dim leading-relaxed">
-                {plan.assignments[0].explanation}
-              </p>
+
             </div>
           </div>
 
-          {/* Response timeline */}
-          <div className="p-6">
-            <span className="mono-label mb-4 block">RESPONSE TIMELINE</span>
-            <div className="space-y-4">
-              {timeline.map((event, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="flex gap-3"
-                >
-                  <div className="flex flex-col items-center">
-                    <span className={`h-2 w-2 rounded-full ${
-                      event.type === 'alert' ? 'bg-resq-coral' :
-                      event.type === 'amber' ? 'bg-resq-amber' : 'bg-resq-teal'
-                    }`} />
-                    {i < timeline.length - 1 && <span className="w-px flex-1 bg-resq-border mt-1" />}
-                  </div>
-                  <div className="pb-4">
-                    <span className="font-mono text-xs text-resq-text-faint block">{event.time}</span>
-                    <span className={`font-mono text-xs uppercase tracking-wider ${
-                      event.type === 'alert' ? 'text-resq-coral' :
-                      event.type === 'amber' ? 'text-resq-amber' : 'text-resq-teal'
-                    }`}>
-                      {event.event}
-                    </span>
-                    <p className="text-xs text-resq-text-dim mt-1">{event.detail}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>
