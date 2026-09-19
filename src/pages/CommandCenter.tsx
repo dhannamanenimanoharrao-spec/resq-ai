@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, MapPin, Clock, ArrowRight, RefreshCw } from 'lucide-react';
 import StatusLabel from '@/components/shared/StatusLabel';
-import RouteMap from '@/components/shared/RouteMap';
+import LiveMap from '@/components/shared/LiveMap';
 import type { Resource } from '@/types/resource';
 import type { Hospital } from '@/types/hospital';
 
@@ -249,14 +249,10 @@ export default function CommandCenter({
 
         {/* MAP */}
         <div className="flex-1 lg:flex-[3] relative min-h-[400px] lg:min-h-0">
-          <RouteMap
-            resources={resourceData}
-            hospitals={hospitalData}
-            incidentPos={incidentPosition}
-            routes={routes}
-            height="100%"
-            showLabels={false}
-            className="border-r-0 lg:border-r border-resq-border"
+          <LiveMap
+            ambulances={ambulances}
+            facilities={facilities}
+            activeEmergency={activeEmergency}
           />
           <div className="absolute top-4 left-4">
             <div className="flex items-center gap-2 px-3 py-2 bg-resq-base/90 border border-resq-teal/40 rounded-sm">
@@ -415,3 +411,4 @@ export default function CommandCenter({
     </div>
   );
 }
+
