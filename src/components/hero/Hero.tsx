@@ -1,5 +1,6 @@
 import { ArrowRight } from 'lucide-react';
 import { motion, useScroll, useSpring, useTransform } from 'framer-motion';
+import { Link } from 'react-router-dom';
 
 interface HeroProps {
   onEnterCommandCenter: () => void;
@@ -224,9 +225,32 @@ export default function Hero({
               gap-4
             "
           >
-            <button
-              onClick={onSeeHowItWorks}
-              className="group inline-flex items-center gap-3 rounded-full bg-[#FFF4D6] px-7 py-3.5 font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-black transition-all duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_0_40px_rgba(255,244,214,0.25)]"
+
+            {/* ANALYZE INCIDENT */}
+
+            <Link
+              to="/analyze"
+              className="
+                group
+                inline-flex
+                items-center
+                gap-3
+                rounded-full
+                bg-[#FFF4D6]
+                px-7
+                py-3.5
+                font-mono
+                text-[11px]
+                font-bold
+                uppercase
+                tracking-[0.14em]
+                text-black
+                transition-all
+                duration-300
+                hover:-translate-y-0.5
+                hover:bg-white
+                hover:shadow-[0_0_40px_rgba(255,244,214,0.25)]
+              "
             >
               Analyze Incident
 
@@ -234,15 +258,18 @@ export default function Hero({
                 className="
                   h-4
                   w-4
+                  text-black
                   transition-transform
                   duration-300
                   group-hover:translate-x-1
                 "
               />
-            </button>
+            </Link>
 
-            <button
-              onClick={onEnterCommandCenter}
+            {/* COMMAND CENTER */}
+
+            <Link
+              to="/command-center"
               className="
                 group
                 inline-flex
@@ -278,7 +305,8 @@ export default function Hero({
                   group-hover:translate-x-1
                 "
               />
-            </button>
+            </Link>
+
           </motion.div>
 
           {/* =================================================
@@ -510,6 +538,7 @@ function MedicalSymbol() {
     >
 
       {/* Arrival glow */}
+
       <motion.div
         initial={{
           opacity: 0,
@@ -543,6 +572,7 @@ function MedicalSymbol() {
         >
 
           {/* Central staff */}
+
           <motion.path
             d="M70 42V204"
             stroke="#67E8F9"
@@ -558,6 +588,7 @@ function MedicalSymbol() {
           />
 
           {/* Top sphere */}
+
           <motion.circle
             cx="70"
             cy="27"
@@ -574,6 +605,7 @@ function MedicalSymbol() {
           />
 
           {/* Left wing */}
+
           <motion.path
             d="M70 45C54 30 35 23 12 30C29 39 42 50 55 61"
             stroke="#67E8F9"
@@ -595,6 +627,7 @@ function MedicalSymbol() {
           />
 
           {/* Right wing */}
+
           <motion.path
             d="M70 45C86 30 105 23 128 30C111 39 98 50 85 61"
             stroke="#67E8F9"
@@ -616,6 +649,7 @@ function MedicalSymbol() {
           />
 
           {/* Left snake */}
+
           <motion.path
             d="
               M70 53
@@ -644,6 +678,7 @@ function MedicalSymbol() {
           />
 
           {/* Right snake */}
+
           <motion.path
             d="
               M70 53
@@ -672,6 +707,7 @@ function MedicalSymbol() {
           />
 
           {/* travelling light left */}
+
           <motion.circle
             r="3"
             fill="#67E8F9"
@@ -692,6 +728,7 @@ function MedicalSymbol() {
           />
 
           {/* travelling light right */}
+
           <motion.circle
             r="3"
             fill="#C8F7FC"
@@ -712,6 +749,7 @@ function MedicalSymbol() {
           />
 
           {/* sparks */}
+
           {[22, 118].map((cx, index) => (
             <motion.circle
               key={cx}
@@ -756,6 +794,7 @@ function InfoBlock({
 }) {
   return (
     <div className="text-center">
+
       <span
         className="
           font-mono
@@ -771,6 +810,7 @@ function InfoBlock({
       <p className="mt-1 text-sm text-[#D5E3EA]">
         {text}
       </p>
+
     </div>
   );
 }
