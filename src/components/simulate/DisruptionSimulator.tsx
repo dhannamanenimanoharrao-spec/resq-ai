@@ -95,7 +95,7 @@ export default function DisruptionSimulator() {
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 <div className="flex items-center gap-3">
-                  <Zap className={`h-4 w-4 ${activeDisruption?.id === d.id ? 'text-resq-coral' : 'text-resq-teal group-hover:text-resq-teal-bright'}`} />
+                  <Zap className={`h-4 w-4 ${activeDisruption?.id === d.id ? 'text-resq-coral' : 'text-resq-teal group-hover:text-[#F5F0E6]'}`} />
                   <span className="font-mono text-sm text-resq-text-bright">{d.label}</span>
                 </div>
                 <p className="text-xs text-resq-text-faint mt-2 pl-7">{d.description}</p>

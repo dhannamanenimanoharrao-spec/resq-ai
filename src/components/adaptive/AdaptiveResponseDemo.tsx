@@ -46,7 +46,7 @@ export default function AdaptiveResponseDemo() {
           className="mb-16 flex items-start justify-between"
         >
           <div>
-            <span className="mono-label-teal mb-4 block">08 — Adaptive Response</span>
+            <span className="mono-label-teal mb-4 block">07 — Adaptive Response</span>
             <h2 className="font-display text-display-lg font-bold text-resq-text-bright max-w-3xl">
               When the plan breaks, the system doesn't.
             </h2>
