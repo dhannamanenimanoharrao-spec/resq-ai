@@ -21,7 +21,7 @@ interface EmergencyResponse {
   assigned_ambulance_id?: string | null;
 }
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://resq-ai-backend-production.up.railway.app';
 
 const analysisStages = [
   'PARSING INCIDENT',
